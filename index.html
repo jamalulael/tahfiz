@@ -40,6 +40,7 @@ td input::placeholder{color:var(--ph)}
 </style><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head><body>
 <nav id="nav" style="display:none"></nav><main id="m"></main>
 <script>
@@ -54,7 +55,7 @@ const fmt=x=>new Date(x-x.getTimezoneOffset()*6e4).toISOString().slice(0,10),har
 let db,santri=[],data={},mode=null,gk=0,anak=null,tab="input",tgl=fmt(new Date()),pekan=tgl,dirty=false;
 const so=(a,sel,ph)=>`<option value="">${ph}</option>`+a.map(x=>`<option ${String(x)==String(sel)?"selected":""}>${esc(x)}</option>`).join("");
 const list=()=>mode=="ortu"?santri.filter(s=>s.id==anak):santri;
-function nav(){const T=mode=="guru"?{input:"Input Data",harian:"Report Harian",mingguan:"Report Mingguan"}:mode=="ortu"?{harian:"Report Harian",mingguan:"Report Mingguan"}:{};
+function nav(){const T=mode=="guru"?{input:"Input Data",harian:"Report Harian",mingguan:"Report Mingguan",backup:"Backup"}:mode=="ortu"?{harian:"Report Harian",mingguan:"Report Mingguan"}:{};
  $("#nav").style.display=mode?"flex":"none";
  $("#nav").innerHTML=Object.entries(T).map(([k,v])=>`<button class="${k==tab?"on":""}" onclick="tab='${k}';nav();render()">${v}</button>`).join("")}
 function gate(){return`<div class="gate"><h2>Pilih Mode Akses</h2><p>Pilih tampilan sesuai kebutuhan Anda</p><div class="g2"><button class="m p" onclick="gk=1;render()">Mode Guru</button><button class="m" onclick="pilihOrtu()">Mode Orang Tua</button></div>${gk?`<div style="text-align:left;margin-top:20px"><label class="mut">Email guru</label><input id="em" type="email" autocomplete="username"><label class="mut" style="display:block;margin-top:10px">Password</label><input id="kd" type="password" autocomplete="current-password" onkeydown="if(event.key=='Enter')cekKode()"><button class="btn" style="margin-top:12px" onclick="cekKode()">Masuk</button><div id="ke" class="msg" style="display:none"></div></div>`:""}</div>`}
@@ -70,7 +71,7 @@ function render(){
  ensureSub();
  if(mode=="ortu"&&!anak&&santri.length)anak=santri[0].id;
  const pick=mode=="ortu"?`<div class="bar"><label>Santri:</label><select style="padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--tx);font:inherit" onchange="anak=this.value;render()">${santri.map(s=>`<option value="${s.id}" ${s.id==anak?"selected":""}>${esc(s.nama)}</option>`).join("")}</select></div>`:"";
- $("#m").innerHTML=hdr()+pick+(santri.length?({input:inputView,harian:harianView,mingguan:mingguView}[tab])():'<div class="msg">Data santri belum tersedia.'+(mode=="guru"?' <button class="btn" style="margin-top:10px" onclick="seed()">Isi daftar santri (15 nama)</button>':'')+'</div>')}
+ $("#m").innerHTML=hdr()+(tab=="backup"?"":remind())+pick+(santri.length?({input:inputView,harian:harianView,mingguan:mingguView,backup:backupView}[tab])():'<div class="msg">Data santri belum tersedia.'+(mode=="guru"?' <button class="btn" style="margin-top:10px" onclick="seed()">Isi daftar santri (15 nama)</button>':'')+'</div>')}
 const dateBar=()=>`<div class="bar"><label>Tanggal:</label><input type="date" value="${tgl}" onchange="if(this.value){tgl=this.value;dirty=false;render()}"><span class="mut">Pilih tanggal</span><b class="hari">Hari: ${hari(tgl)}</b></div>`;
 function inputView(){
  const rows=santri.map((s,i)=>{const d=data[s.id+"_"+tgl]||{};return`<tr data-s="${s.id}"><td>${i+1}</td><td class="nm">${esc(s.nama)}</td>
@@ -94,14 +95,26 @@ function harianView(){
  const rows=list().map((s,i)=>{const d=data[s.id+"_"+tgl]||{},c=x=>esc(x||"–");return`<tr><td>${i+1}</td><td class="nm">${esc(s.nama)}</td><td style="text-align:center">${c(d.juz)}</td><td style="text-align:center">${c(d.detail)}</td><td style="text-align:center">${c(d.ayat)}</td><td>${c(d.statusZ)}</td><td>${c(d.murojaah)}</td><td>${c(d.statusM)}</td><td class="wrap">${c(d.catatan)}</td></tr>`}).join("");
  return dateBar()+`<div class="sc"><table><tr><th>No</th><th style="text-align:left">Nama</th><th>Juz</th><th>Detail Juz</th><th>Ayat (Akhir Setoran)</th><th>Status</th><th>Muroja’ah</th><th>Status</th><th>Catatan</th></tr>${rows}</table></div>`}
 function mingguView(){
- const b=new Date(pekan+"T00:00:00");b.setDate(b.getDate()-((b.getDay()+6)%7));const e=new Date(b);e.setDate(e.getDate()+6);const a=fmt(b),z=fmt(e);
- const rows=list().map((s,i)=>{const r=Object.values(data).filter(d=>d.santriId==s.id&&d.tanggal>=a&&d.tanggal<=z).sort((x,y)=>x.tanggal.localeCompare(y.tanggal));
- const set=r.filter(d=>d.juz||d.ayat).length,lc=r.filter(d=>d.statusZ=="Lancar").length,mr=r.filter(d=>d.murojaah).length,l=[...r].reverse().find(d=>d.juz||d.ayat);
- const last=l?`Juz ${l.juz||"-"} · ${l.detail||"-"} · ayat ${l.ayat||"-"} (${l.tanggal.slice(8)}/${l.tanggal.slice(5,7)})`:"–",cat=r.filter(d=>d.catatan).map(d=>d.tanggal.slice(8)+": "+d.catatan).join("; ")||"–";
- return`<tr><td>${i+1}</td><td class="nm">${esc(s.nama)}</td><td style="text-align:center">${set}</td><td style="text-align:center">${lc}</td><td style="text-align:center">${mr}</td><td>${esc(last)}</td><td class="wrap">${esc(cat)}</td></tr>`}).join("");
- return`<div class="bar"><label>Pekan berisi tanggal:</label><input type="date" value="${pekan}" onchange="if(this.value){pekan=this.value;render()}"><b class="hari">${a} s/d ${z} (Senin–Ahad)</b></div><div class="sc"><table><tr><th>No</th><th style="text-align:left">Nama</th><th>Hari Setoran</th><th>Setoran Lancar</th><th>Hari Muroja’ah</th><th>Setoran Terakhir</th><th>Catatan</th></tr>${rows}</table></div>`}
+ const b=new Date(pekan+"T00:00:00");b.setDate(b.getDate()-((b.getDay()+6)%7));
+ const D=[...Array(6)].map((_,i)=>{const x=new Date(b);x.setDate(x.getDate()+i);return fmt(x)}),tg=t=>t.slice(8)+"/"+t.slice(5,7);
+ const cell=d=>{if(!d)return"–";const a=[];if(d.juz||d.detail||d.ayat)a.push(`<b>${esc("Juz "+(d.juz||"-")+(d.detail?" · "+d.detail:"")+(d.ayat?" · ay "+d.ayat:""))}</b>`+(d.statusZ?` <span class="mut">(${esc(d.statusZ)})</span>`:""));if(d.murojaah)a.push(`<span class="mut">M: ${esc(d.murojaah)}${d.statusM?" ("+esc(d.statusM)+")":""}</span>`);return a.join("<br>")||"–"};
+ const rows=list().map((s,i)=>{const cs=D.map(t=>data[s.id+"_"+t]);
+ const cat=D.map((t,k)=>cs[k]&&cs[k].catatan?`<b>${HARI[k+1].slice(0,3)}</b>: ${esc(cs[k].catatan)}`:"").filter(Boolean).join("<br>")||"–";
+ return`<tr><td>${i+1}</td><td class="nm">${esc(s.nama)}</td>${cs.map(c=>`<td class="wrap" style="min-width:110px">${cell(c)}</td>`).join("")}<td class="wrap" style="min-width:200px">${cat}</td></tr>`}).join("");
+ return`<div class="bar"><label>Pekan berisi tanggal:</label><input type="date" value="${pekan}" onchange="if(this.value){pekan=this.value;render()}"><b class="hari">Senin ${tg(D[0])} – Sabtu ${tg(D[5])}</b></div><div class="sc"><table style="min-width:1150px"><tr><th>No</th><th style="text-align:left">Nama</th>${D.map((t,k)=>`<th>${HARI[k+1]}<br><span style="font-weight:400">${tg(t)}</span></th>`).join("")}<th>Catatan</th></tr>${rows}</table></div>`}
+const LB="lastBackup";
+const getLB=()=>{try{return localStorage.getItem(LB)||""}catch(e){return""}};
+function remind(){if(mode!="guru")return"";const n=new Date();if(n.getDate()>7)return"";const first=fmt(new Date(n.getFullYear(),n.getMonth(),1));if(getLB()>=first)return"";
+ return`<div class="msg" style="border:1px solid #facc15;color:var(--tx);background:var(--card)">🔔 <b>Pengingat awal bulan:</b> unduh backup data hafalan sekarang supaya data tetap aman. <button class="btn" style="display:inline-flex;margin:8px 0 0 8px;padding:8px 14px" onclick="backupXlsx()">Unduh Excel</button></div>`}
+function backupView(){const l=getLB();return`<div class="sc" style="padding:20px"><h2 style="margin:0 0 8px">Backup data</h2><p style="margin:0 0 14px;color:var(--mut)">Unduh seluruh data setoran (semua tanggal) ke komputer ini. Simpan juga salinannya di Google Drive. Disarankan setiap tanggal 1.</p><p style="margin:0 0 14px"><b>Backup terakhir di perangkat ini:</b> ${l?hari(l)+", "+l:"belum pernah"}</p><div class="acts" style="margin-top:0"><button class="btn" onclick="backupXlsx()">Unduh Excel (.xlsx)</button><button class="btn o" style="color:var(--pri);border-color:var(--pri)" onclick="backupCsv()">Unduh CSV</button></div><p class="mut" style="margin-top:14px">Tanggal backup terakhir dicatat per browser. Pengingat muncul tanggal 1–7 setiap bulan sampai backup diunduh.</p></div>`}
+async function ambilSemua(){const q=await db.collection("setoran").get(),S={};santri.forEach(s=>S[s.id]=s);
+ const r=q.docs.map(d=>d.data()).sort((a,b)=>a.tanggal.localeCompare(b.tanggal)||((S[a.santriId]||{}).urut||0)-((S[b.santriId]||{}).urut||0));
+ return[["Tanggal","Hari","Nama","Juz","Detail Juz","Ayat (Akhir Setoran)","Status Setoran","Muroja’ah","Status Muroja’ah","Catatan"],...r.map(x=>[x.tanggal,hari(x.tanggal),(S[x.santriId]||{}).nama||"(dihapus)",x.juz||"",x.detail||"",x.ayat||"",x.statusZ||"",x.murojaah||"",x.statusM||"",x.catatan||""])]}
+function selesaiBackup(n){try{localStorage.setItem(LB,fmt(new Date()))}catch(e){}alert("Backup berhasil: "+n+" baris data diunduh. Simpan file itu di tempat aman.");render()}
+async function backupXlsx(){try{const a=await ambilSemua(),wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(a);ws["!cols"]=[12,9,30,6,10,18,14,22,16,40].map(w=>({wch:w}));XLSX.utils.book_append_sheet(wb,ws,"Setoran");XLSX.writeFile(wb,"backup-tahfiz-"+fmt(new Date())+".xlsx");selesaiBackup(a.length-1)}catch(e){alert("Gagal mengunduh Excel. Coba tombol Unduh CSV. ("+(e.message||e.code)+")")}}
+async function backupCsv(){try{const a=await ambilSemua(),c=a.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(";")).join("\r\n"),u=URL.createObjectURL(new Blob(["\ufeff"+c],{type:"text/csv;charset=utf-8"})),l=document.createElement("a");l.href=u;l.download="backup-tahfiz-"+fmt(new Date())+".csv";document.body.appendChild(l);l.click();l.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);selesaiBackup(a.length-1)}catch(e){alert("Gagal mengunduh CSV: "+(e.message||e.code))}}
 let subKey="",unsubS=null;
-function ensureSub(){let f,t;if(tab=="mingguan"){const b=new Date(pekan+"T00:00:00");b.setDate(b.getDate()-((b.getDay()+6)%7));const e=new Date(b);e.setDate(e.getDate()+6);f=fmt(b);t=fmt(e)}else{f=tgl.slice(0,7)+"-01";t=tgl.slice(0,7)+"-31"}
+function ensureSub(){let f,t;if(tab=="mingguan"){const b=new Date(pekan+"T00:00:00");b.setDate(b.getDate()-((b.getDay()+6)%7));const e=new Date(b);e.setDate(e.getDate()+5);f=fmt(b);t=fmt(e)}else{f=tgl.slice(0,7)+"-01";t=tgl.slice(0,7)+"-31"}
  const k=f+t;if(k==subKey)return;subKey=k;if(unsubS)unsubS();
  unsubS=db.collection("setoran").where("tanggal",">=",f).where("tanggal","<=",t).onSnapshot(s=>{data={};s.docs.forEach(d=>data[d.id]=d.data());if(tab=="input"&&dirty)return;const a=document.activeElement;if(a&&/INPUT|SELECT/.test(a.tagName)&&$("#m").contains(a))return;render()},e=>console.error(e))}
 async function seed(){if(!confirm("Isi 15 nama santri awal?"))return;const b=db.batch();NAMA.forEach((n,i)=>b.set(db.collection("santri").doc("s"+String(i+1).padStart(2,"0")),{nama:n,urut:i+1}));try{await b.commit()}catch(e){alert("Gagal: "+(e.message||e.code))}}
